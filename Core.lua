@@ -43,6 +43,7 @@ ns.DEFAULTS = {
 	countFontScale = 0.55,  -- number height as a fraction of the icon
 	borderSize = 2,
 	tintIcon = true,
+	dangerMarker = false,   -- red X raid markers beside the number at danger
 
 	-- Filtering
 	bossOnly = true,        -- only auras Blizzard flags as boss auras
@@ -168,6 +169,7 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
@@ -184,6 +186,14 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
 		ns.UpdateSounds()
 		if ns.SetupOptions then
 			ns.SetupOptions()
+		end
+		ns.RegisterEditMode()
+
+	elseif event == "PLAYER_REGEN_DISABLED" then
+		-- Keep the screen clear on the pull. Changes made in the HUD are
+		-- already saved; rebuilds wait for combat to end anyway.
+		if ns.HideHud then
+			ns.HideHud()
 		end
 
 	elseif event == "PLAYER_REGEN_ENABLED" then
@@ -215,7 +225,8 @@ end)
 
 local function Usage()
 	Print("v" .. ns.VERSION .. " commands:")
-	print("  /sw config      open the settings panel")
+	print("  /sw             open the quick-settings window")
+	print("  /sw config      open the full settings panel")
 	print("  /sw unlock      show the drag handle (drag it, then /sw lock)")
 	print("  /sw lock        hide the drag handle")
 	print("  /sw test        toggle the demo (cycles 0 to max stacks)")
@@ -320,7 +331,11 @@ SlashCmdList["STACKWATCH"] = function(msg)
 	msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
 	local cmd, rest = msg:match("^(%S+)%s*(.*)$")
 	cmd = cmd or ""
-	if cmd == "config" or cmd == "options" then
+	if cmd == "" or cmd == "hud" then
+		if ns.ToggleHud then
+			ns.ToggleHud()
+		end
+	elseif cmd == "config" or cmd == "options" then
 		if ns.OpenOptions then
 			ns.OpenOptions()
 		end
@@ -355,7 +370,9 @@ end
 
 -- AddOn compartment (the minimap dropdown of addons)
 function StackWatch_OnAddonCompartmentClick()
-	if ns.OpenOptions then
+	if ns.ToggleHud then
+		ns.ToggleHud()
+	elseif ns.OpenOptions then
 		ns.OpenOptions()
 	end
 end

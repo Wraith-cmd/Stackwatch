@@ -27,6 +27,7 @@ local ADDON_NAME, ns = ...
 local WHITE8 = "Interface\\Buttons\\WHITE8x8"
 local SOUND_FILE = "Interface\\AddOns\\" .. ADDON_NAME .. "\\media\\tick.ogg"
 local LAYER_LEVEL = { base = 2, caution = 12, danger = 22 }
+local RAID_MARKER_X = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_7"
 
 ns.containers = {}
 ns.activeSoundIDs = {}
@@ -48,6 +49,7 @@ local function ApplyFont(fs, fontSize)
 	fs:SetJustifyH("CENTER")
 	fs:SetJustifyV("MIDDLE")
 end
+ns.ApplyFont = ApplyFont
 
 local function Metrics()
 	local db = ns.db
@@ -183,6 +185,24 @@ function ns.BuildLook(f, layer)
 		count:SetPoint("CENTER", gate, "TOPLEFT", size / 2, -size / 2)
 		count:SetTextColor(color[1], color[2], color[3], 1)
 		look.count = count
+
+		-- Red X raid markers (the {rt7} Cross) in the top corners, so the
+		-- danger icon reads "X 8 X". Children of the gate like everything else.
+		if layer == "danger" and db.dangerMarker then
+			local markerSize = math.max(10, math.floor(size * 0.34 + 0.5))
+			look.markers = {}
+			for i, side in ipairs({ "LEFT", "RIGHT" }) do
+				local m = gate:CreateTexture(nil, "OVERLAY", nil, 1)
+				m:SetTexture(RAID_MARKER_X)
+				m:SetSize(markerSize, markerSize)
+				if side == "LEFT" then
+					m:SetPoint("CENTER", gate, "TOPLEFT", 2, -2)
+				else
+					m:SetPoint("CENTER", gate, "TOPLEFT", size - 2, -2)
+				end
+				look.markers[i] = m
+			end
+		end
 	end
 
 	return look
@@ -211,12 +231,19 @@ local function SavePosition(self)
 	end
 end
 
+local HANDLE_TEXT = "StackWatch  (drag, right-click for settings)"
+local HANDLE_TEXT_EDITMODE = "StackWatch  (drag, click for settings)"
+
+-- The handle is shown while unlocked and while Blizzard's Edit Mode is open.
+-- Edit Mode does not change the saved lock state.
 function ns.SetAnchorLocked(locked)
 	if not anchor then
 		return
 	end
-	anchor.handle:SetShown(not locked)
-	anchor.handle:EnableMouse(not locked)
+	local movable = (not locked) or ns.inEditMode == true
+	anchor.handle:SetShown(movable)
+	anchor.handle:EnableMouse(movable)
+	anchor.handle.label:SetText(ns.inEditMode and HANDLE_TEXT_EDITMODE or HANDLE_TEXT)
 end
 
 local function CreateAnchor()
@@ -232,14 +259,28 @@ local function CreateAnchor()
 	handle:SetAllPoints(anchor)
 	handle:SetFrameLevel(anchor:GetFrameLevel() + 60)
 	handle:RegisterForDrag("LeftButton")
-	handle:SetScript("OnDragStart", function()
-		if not ns.db.locked then
+	handle:SetScript("OnMouseDown", function(self)
+		self.dragged = false
+	end)
+	handle:SetScript("OnDragStart", function(self)
+		if not ns.db.locked or ns.inEditMode then
+			self.dragged = true
 			anchor:StartMoving()
 		end
 	end)
 	handle:SetScript("OnDragStop", function()
 		anchor:StopMovingOrSizing()
 		SavePosition(anchor)
+	end)
+	-- A click without a drag opens the quick-settings HUD: right-click any
+	-- time the handle is shown, left-click too while in Edit Mode.
+	handle:SetScript("OnMouseUp", function(self, button)
+		if self.dragged then
+			return
+		end
+		if (button == "RightButton" or ns.inEditMode) and ns.ToggleHud then
+			ns.ToggleHud()
+		end
 	end)
 	handle:Hide()
 	handle:EnableMouse(false)
@@ -252,9 +293,45 @@ local function CreateAnchor()
 	local label = handle:CreateFontString(nil, "OVERLAY")
 	ApplyFont(label, 11)
 	label:SetPoint("BOTTOM", handle, "TOP", 0, 3)
-	label:SetText("StackWatch  (drag, then /sw lock)")
+	label:SetText(HANDLE_TEXT)
+	handle.label = label
 
 	ns.anchor = anchor
+end
+
+------------------------------------------------------------------------
+-- Blizzard Edit Mode
+-- While Edit Mode is open the drag handle is shown and the demo runs so the
+-- tracker can be placed like any other HUD element. Blizzard fires these
+-- callbacks through secureexecuterange, so nothing here taints Edit Mode.
+-- Edit Mode cannot be opened in combat.
+------------------------------------------------------------------------
+
+local function OnEditModeEnter()
+	ns.inEditMode = true
+	if not ns.demoActive and ns.StartDemo then
+		ns.StartDemo(true)
+		ns.editModeDemo = true
+	end
+	ns.SetAnchorLocked(ns.db.locked)
+end
+
+local function OnEditModeExit()
+	ns.inEditMode = false
+	if ns.editModeDemo and ns.StopDemo then
+		ns.StopDemo()
+	end
+	ns.editModeDemo = false
+	ns.SetAnchorLocked(ns.db.locked)
+end
+
+function ns.RegisterEditMode()
+	if ns.editModeRegistered or not (EventRegistry and EventRegistry.RegisterCallback) then
+		return
+	end
+	ns.editModeRegistered = true
+	EventRegistry:RegisterCallback("EditMode.Enter", OnEditModeEnter, ns)
+	EventRegistry:RegisterCallback("EditMode.Exit", OnEditModeExit, ns)
 end
 
 ------------------------------------------------------------------------

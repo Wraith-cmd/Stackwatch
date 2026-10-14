@@ -16,9 +16,14 @@ local function check(cond, msg)
 	realPrint("ok   " .. msg)
 end
 
-local files = { "Core.lua", "Display.lua", "Demo.lua", "Options.lua" }
+-- Load the files in the order the .toc lists them
+local files = {}
+for line in io.lines("StackWatch.toc") do
+	line = line:gsub("%c$", "")
+	if line:match("%.lua$") then files[#files + 1] = line end
+end
 local ns = stub.LoadAddon(".", "StackWatch", files)
-check(ns.VERSION, "all four files load in TOC order")
+check(ns.VERSION and #files >= 5, "all " .. #files .. " files load in TOC order")
 
 -- Fresh install: no saved variables
 StackWatchDB = nil
@@ -169,6 +174,80 @@ check(#ns.activeSoundIDs == 1, "sounds re-registered after the encounter ends")
 local active = 0
 for _, c in ipairs(stub.containers) do if c._enabled then active = active + 1 end end
 check(active == 3, "exactly three containers active after rebuilds")
+
+-- Edit Mode: handle and demo appear, saved lock state untouched, all restored on exit
+check(stub.callbacks["EditMode.Enter"] and stub.callbacks["EditMode.Exit"], "Edit Mode callbacks registered")
+ns.db.locked = true
+ns.SetAnchorLocked(true)
+stub.TriggerCallback("EditMode.Enter")
+check(ns.anchor.handle:IsShown() and ns.anchor.handle._mouse == true and ns.demoActive == true, "Edit Mode shows the drag handle and the demo")
+check(ns.db.locked == true, "Edit Mode does not change the saved lock")
+ns.anchor.handle._script_OnMouseDown(ns.anchor.handle, "LeftButton")
+ns.anchor.handle._script_OnMouseUp(ns.anchor.handle, "LeftButton")
+local hudFrame
+for _, f in ipairs(stub.frames) do if f._name == "StackWatchHud" then hudFrame = f end end
+check(hudFrame and hudFrame:IsShown(), "click on the tracker in Edit Mode opens the HUD")
+ns.anchor.handle._script_OnMouseDown(ns.anchor.handle, "LeftButton")
+ns.anchor.handle._script_OnDragStart(ns.anchor.handle)
+ns.anchor.handle._script_OnDragStop(ns.anchor.handle)
+ns.anchor.handle._script_OnMouseUp(ns.anchor.handle, "LeftButton")
+check(hudFrame:IsShown(), "dragging the tracker does not toggle the HUD")
+stub.TriggerCallback("EditMode.Exit")
+check(not ns.anchor.handle:IsShown() and ns.anchor.handle._mouse == false and ns.demoActive == false, "leaving Edit Mode hides the handle and stops the demo")
+-- A demo the player started stays on through Edit Mode
+slash("test")
+stub.TriggerCallback("EditMode.Enter")
+stub.TriggerCallback("EditMode.Exit")
+check(ns.demoActive == true, "Edit Mode leaves a manually started demo running")
+slash("test")
+
+-- HUD buttons
+local function findButton(text, nth)
+	local n = 0
+	local function walk(o)
+		for _, c in ipairs(o._children) do
+			if c._type == "Button" and c._text == text then
+				n = n + 1
+				if n == (nth or 1) then return c end
+			end
+			local r = walk(c)
+			if r then return r end
+		end
+	end
+	return walk(hudFrame)
+end
+local cautionBefore = ns.db.cautionStacks
+findButton("+", 1)._script_OnClick()
+stub.RunTimers()
+check(ns.db.cautionStacks == cautionBefore + 1, "HUD + raises caution stacks")
+local built = #stub.containers
+findButton("-", 1)._script_OnClick()
+stub.RunTimers()
+check(ns.db.cautionStacks == cautionBefore and #stub.containers == built + 3, "HUD - lowers it and rebuilds through the settings path")
+for _ = 1, 40 do findButton("-", 1)._script_OnClick() end
+check(ns.db.cautionStacks == 1, "HUD clamps to the slider minimum")
+ns.SetOption("cautionStacks", 5)
+local scaleBefore = ns.db.scale
+findButton("+", 6)._script_OnClick()
+check(math.abs(ns.db.scale - (scaleBefore + 0.05)) < 0.001, "HUD scale step is 0.05")
+ns.SetOption("scale", scaleBefore)
+local markerBtn = findButton("Red X at danger: off")
+check(markerBtn ~= nil, "HUD shows the red X toggle")
+markerBtn._script_OnClick()
+stub.RunTimers()
+local dangerBtn = stub.containers[#stub.containers]._groups.stacks.frames[1]
+check(ns.db.dangerMarker == true and dangerBtn._bar and #dangerBtn._bar._children >= 7, "red X markers built on the danger gate")
+local markers = 0
+for _, c in ipairs(dangerBtn._bar._children) do if c._tex == "Interface\\TargetingFrame\\UI-RaidTargetingIcon_7" then markers = markers + 1 end end
+check(markers == 2, "two red X markers at danger")
+ns.SetOption("dangerMarker", false)
+stub.RunTimers()
+stub.FireEvent("PLAYER_REGEN_DISABLED")
+check(not hudFrame:IsShown(), "HUD closes when combat starts")
+slash("")
+check(hudFrame:IsShown(), "/sw with no arguments opens the HUD")
+slash("")
+check(not hudFrame:IsShown(), "/sw again closes it")
 
 -- Addon compartment entry point
 StackWatch_OnAddonCompartmentClick()

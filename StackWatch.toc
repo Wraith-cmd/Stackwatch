@@ -13,3 +13,4 @@ Core.lua
 Display.lua
 Demo.lua
 Options.lua
+Hud.lua

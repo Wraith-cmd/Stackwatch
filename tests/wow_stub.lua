@@ -164,7 +164,12 @@ function Object:SetScript(name, fn) assert(fn == nil or type(fn) == "function") 
 function Object:RegisterEvent(ev) self._events[ev] = true end
 function Object:UnregisterEvent(ev) self._events[ev] = nil end
 function Object:IsEventRegistered(ev) return self._events[ev] == true end
-function Object:CreateTexture(name, layer) local t = NewObject("Texture", self, name) t._layer = layer return t end
+function Object:CreateTexture(name, layer, template, subLevel)
+	if subLevel ~= nil then assert(type(subLevel) == "number" and subLevel >= -8 and subLevel <= 7, "texture subLevel must be -8..7") end
+	local t = NewObject("Texture", self, name) t._layer = layer return t
+end
+function Object:SetVertexColor(r, g, b, a) assert(type(r) == "number" and type(g) == "number" and type(b) == "number") end
+function Object:SetMouseClickEnabled(b) end
 function Object:CreateFontString(name, layer) local f = NewObject("FontString", self, name) f._layer = layer return f end
 -- Texture
 function Object:SetColorTexture(r, g, b, a) assert(self._type == "Texture") end
@@ -369,6 +374,12 @@ function CreateFrame(frameType, name, parent, template)
 		assert(template == "CooldownFrameTemplate", "Cooldown should use CooldownFrameTemplate")
 	end
 	assert(frameType == "Frame" or frameType == "StatusBar" or frameType == "Cooldown" or frameType == "Button", "unexpected frame type " .. frameType)
+	if frameType == "Button" then
+		-- Templates verified in Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml
+		assert(template == nil or template == "UIPanelButtonTemplate" or template == "UIPanelCloseButton", "unverified button template " .. tostring(template))
+	else
+		assert(template == nil or template == "CooldownFrameTemplate", "unverified frame template " .. tostring(template))
+	end
 	return NewObject(frameType, parent, name)
 end
 UIParent = NewObject("Frame", nil, "UIParent")
@@ -432,6 +443,23 @@ Settings = {
 		assert(#data > 0)
 	end,
 }
+-- EventRegistry (Blizzard_SharedXMLBase/CallbackRegistry.lua). Edit Mode
+-- triggers "EditMode.Enter" / "EditMode.Exit" (Blizzard_EditMode/Shared/EditModeManager.lua).
+stub.callbacks = {}
+EventRegistry = {
+	RegisterCallback = function(self, event, func, owner, ...)
+		assert(self == EventRegistry, "RegisterCallback must be called with a colon")
+		assert(type(event) == "string", "CallbackRegistryMixin::RegisterCallback 'event' requires string type.")
+		assert(type(func) == "function", "CallbackRegistryMixin::RegisterCallback 'func' requires function type.")
+		assert(type(owner) ~= "number", "'owner' as number is reserved internally.")
+		stub.callbacks[event] = stub.callbacks[event] or {}
+		stub.callbacks[event][owner or func] = func
+	end,
+}
+function stub.TriggerCallback(event, ...)
+	for owner, func in pairs(stub.callbacks[event] or {}) do func(owner, ...) end
+end
+
 MinimalSliderWithSteppersMixin = { Label = { Left = 1, Right = 2, Top = 3 } }
 function CreateSettingsListSectionHeaderInitializer(text) assert(type(text) == "string") return { header = text } end
 
