@@ -23,7 +23,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       WATCH_TITLE: Blizzard build watch
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Find or create the watch issue
         id: issue
