@@ -20,6 +20,16 @@ Progress notes so work can continue on any machine. Newest first. Not shipped (i
 | Build watch | done, starts after merge | Daily GitHub Action. Every new live or PTR build gets checked; results go on the "Blizzard build watch" issue, failures open their own issue (GitHub emails you). |
 | Tests on every push | done | Smoke test + live compatibility check run in GitHub Actions. |
 
+### Review (Throne)
+
+- Vision (code review) found 4 issues, all fixed. The main one: the session snapshot at ENCOUNTER_START ran without protection while the pull may already be restricted.
+- Ultron (adversarial testing, about 70 cases) found 4 issues, 3 fixed and 1 logged:
+  - Fixed: encounter handlers could error on an odd or secret damage meter list. Both are now wrapped, and every list entry is type-checked.
+  - Fixed: hand-corrupted saved variables could stop the tracker at login. They are now repaired at load.
+  - Fixed: leaving Edit Mode could stop a demo you started by hand.
+  - Logged, not fixed: each rebuild while the demo is running creates a new demo frame tree (about 50 regions). WoW cannot free frames, rebuilds are debounced, and this only happens while changing settings with the demo on. Fine for now; reuse the demo frame if it ever matters.
+- All repros are regression checks in the smoke test (88 checks).
+
 ### Not built, and why
 
 - **Chat callout at 8 and 9 stacks** (red X + number in chat): impossible. The stack count is secret during the fight, so the addon cannot know it is at 8, and addon chat is blocked during encounters. The red X on your own icon is the closest legal version.

@@ -95,8 +95,10 @@ function ns.RefreshDemo()
 	if not ns.demoActive then
 		return
 	end
+	local fromEditMode = ns.editModeDemo
 	ns.StopDemo()
 	ns.StartDemo(true)
+	ns.editModeDemo = fromEditMode
 end
 
 -- quiet: started by Edit Mode, no chat message.
@@ -125,6 +127,8 @@ function ns.StopDemo()
 		demo = nil
 	end
 	ns.demoActive = false
+	-- A demo started later by /sw test belongs to the player, not Edit Mode.
+	ns.editModeDemo = false
 end
 
 function ns.ToggleDemo()

@@ -321,7 +321,6 @@ local function OnEditModeExit()
 	if ns.editModeDemo and ns.StopDemo then
 		ns.StopDemo()
 	end
-	ns.editModeDemo = false
 	ns.SetAnchorLocked(ns.db.locked)
 end
 

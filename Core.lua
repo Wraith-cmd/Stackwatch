@@ -102,6 +102,44 @@ local function CopyDefaults(src, dst)
 	return dst
 end
 
+-- Repair values a hand-edited or damaged SavedVariables file could hold:
+-- wrong types fall back to the default, numbers are clamped to the slider
+-- ranges, colors must be three numbers. Runs once at load.
+local function Sanitize(db)
+	for k, def in pairs(ns.DEFAULTS) do
+		if type(db[k]) ~= type(def) then
+			if type(def) == "table" then
+				db[k] = CopyDefaults(def, nil)
+			else
+				db[k] = def
+			end
+		end
+	end
+	local ranges = ns.RANGES or {}
+	for k, r in pairs(ranges) do
+		local v = db[k]
+		if v ~= v then -- NaN
+			v = ns.DEFAULTS[k]
+		end
+		db[k] = math.min(r[2], math.max(r[1], v))
+	end
+	if db.growth ~= "RIGHT" and db.growth ~= "LEFT" then
+		db.growth = ns.DEFAULTS.growth
+	end
+	for name, def in pairs(ns.DEFAULTS.colors) do
+		local c = db.colors[name]
+		if type(c) ~= "table" or type(c[1]) ~= "number" or type(c[2]) ~= "number" or type(c[3]) ~= "number" then
+			db.colors[name] = { def[1], def[2], def[3] }
+		end
+	end
+	for i = #db.soundSpellIDs, 1, -1 do
+		if type(db.soundSpellIDs[i]) ~= "number" then
+			table.remove(db.soundSpellIDs, i)
+		end
+	end
+	return db
+end
+
 local function Print(msg)
 	print("|cff7fd1ffStackWatch|r: " .. tostring(msg))
 end
@@ -182,7 +220,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, ...)
 		if arg1 ~= ADDON_NAME then
 			return
 		end
-		StackWatchDB = CopyDefaults(ns.DEFAULTS, StackWatchDB)
+		StackWatchDB = Sanitize(CopyDefaults(ns.DEFAULTS, StackWatchDB))
 		ns.db = StackWatchDB
 		self:UnregisterEvent("ADDON_LOADED")
 

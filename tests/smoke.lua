@@ -342,6 +342,47 @@ out = printedSince(mark)
 check(out:find("Tankyboi") and not out:find("TrashPuller"), "restricted ENCOUNTER_START: report still finds the fight's session by length")
 stub.inRaid, stub.isLeader = false, false
 
+-- Regressions found by adversarial testing
+local realSessions = C_DamageMeter.GetAvailableCombatSessions
+for _, list in ipairs({ { stub.SECRET }, { 5 }, { false }, stub.SECRET, { { sessionID = 0 / 0 } } }) do
+	C_DamageMeter.GetAvailableCombatSessions = function() return list end
+	stub.FireEvent("ENCOUNTER_START", 3421, "The Twin Fangs", 16, 20)
+	stub.FireEvent("ENCOUNTER_END", 3421, "The Twin Fangs", 16, 20, 0, {})
+	stub.RunTimers()
+end
+C_DamageMeter.GetAvailableCombatSessions = realSessions
+check(true, "odd or secret damage meter session lists never raise an error")
+
+ns.SetOption("iconSize", "big")
+ns.SetOption("growth", "UP")
+ns.SetOption("scale", 0 / 0)
+check(type(ns.db.iconSize) == "number" and ns.db.growth ~= "UP" and ns.db.scale == ns.db.scale, "SetOption ignores wrong types, bad choices and NaN")
+
+local saved = StackWatchDB
+StackWatchDB = { iconSize = "big", scale = -4, maxIcons = 99, growth = "UP", colors = { caution = { 1 } }, soundSpellIDs = { "x", 1290336 } }
+stub.frames[1]._events["ADDON_LOADED"] = true
+stub.FireEvent("ADDON_LOADED", "StackWatch")
+local db = StackWatchDB
+check(db.iconSize == 48 and db.scale == 0.5 and db.maxIcons == 6 and db.growth == "RIGHT", "corrupted saved variables are repaired at load")
+check(#db.colors.caution == 3 and #db.soundSpellIDs == 1 and db.soundSpellIDs[1] == 1290336, "bad colors and sound IDs are repaired")
+ns.BuildDisplay()
+check(ns.displayBuilt, "display builds from repaired saved variables")
+StackWatchDB, ns.db = saved, saved
+
+stub.TriggerCallback("EditMode.Enter")
+slash("test")
+slash("test")
+stub.TriggerCallback("EditMode.Exit")
+check(ns.demoActive == true, "a demo restarted by hand during Edit Mode survives leaving Edit Mode")
+slash("test")
+stub.TriggerCallback("EditMode.Enter")
+ns.SetOption("iconSize", 50)
+stub.RunTimers()
+stub.TriggerCallback("EditMode.Exit")
+check(ns.demoActive == false, "the Edit Mode demo still stops after a rebuild inside Edit Mode")
+ns.SetOption("iconSize", 48)
+stub.RunTimers()
+
 -- Addon compartment entry point
 StackWatch_OnAddonCompartmentClick()
 

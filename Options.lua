@@ -52,6 +52,13 @@ end
 -- Change one option from anywhere (HUD, slash commands). Goes through the
 -- Blizzard setting when one exists so the panel shows the new value.
 function ns.SetOption(key, value)
+	local default = ns.DEFAULTS[key]
+	if default == nil or type(value) ~= type(default) or value ~= value then
+		return -- unknown key, wrong type or NaN
+	end
+	if key == "growth" and value ~= "RIGHT" and value ~= "LEFT" then
+		return
+	end
 	local range = ns.RANGES[key]
 	if range and type(value) == "number" then
 		value = math.min(range[2], math.max(range[1], value))

@@ -87,8 +87,11 @@ local function SessionIDs()
 		return ids
 	end
 	for _, s in ipairs(list) do
-		local id, duration = Num(s.sessionID), Num(s.durationSeconds)
-		if id then
+		local id, duration
+		if type(s) == "table" and not Secret(s) then
+			id, duration = Num(s.sessionID), Num(s.durationSeconds)
+		end
+		if id and id == id then -- id == id skips NaN
 			ids[id] = duration or -1
 		end
 	end
@@ -235,8 +238,12 @@ function ns.TryPendingReport()
 	end
 end
 
-function ns.OnEncounterStart(encounterID, encounterName)
-	ns.encounterStartTime = GetTime and GetTime() or nil
+local function Now()
+	return Num(GetTime and GetTime())
+end
+
+local function EncounterStart()
+	ns.encounterStartTime = Now()
 	lastKnownSession = nil
 	-- The pull may already be restricted here. The snapshot is optional
 	-- (FindSession works without it), so skip it then, and never let it error.
@@ -254,10 +261,11 @@ function ns.OnEncounterStart(encounterID, encounterName)
 	end)
 end
 
-function ns.OnEncounterEnd(encounterID, encounterName, difficultyID, groupSize, success)
+local function EncounterEnd(encounterID, encounterName, difficultyID, groupSize, success)
 	local seconds
-	if ns.encounterStartTime and GetTime then
-		seconds = GetTime() - ns.encounterStartTime
+	local now = Now()
+	if ns.encounterStartTime and now then
+		seconds = now - ns.encounterStartTime
 	end
 	ns.encounterStartTime = nil
 	pending = {
@@ -271,6 +279,16 @@ function ns.OnEncounterEnd(encounterID, encounterName, difficultyID, groupSize, 
 	-- Combat usually ends a moment after ENCOUNTER_END; the regen and
 	-- restriction events retry. This covers the case where nothing fires.
 	C_Timer.After(3, ns.TryPendingReport)
+end
+
+-- Both run at the pull or right after it. The report is optional; an
+-- unexpected value from the client must never become a Lua error there.
+function ns.OnEncounterStart(...)
+	pcall(EncounterStart, ...)
+end
+
+function ns.OnEncounterEnd(...)
+	pcall(EncounterEnd, ...)
 end
 
 function ns.ShowLastReport()
