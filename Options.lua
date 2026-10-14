@@ -58,7 +58,7 @@ function ns.SetOption(key, value)
 		if range[3] >= 1 then
 			value = math.floor(value + 0.5)
 		else
-			value = math.floor(value / range[3] + 0.5) * range[3]
+			value = tonumber(string.format("%.2f", math.floor(value / range[3] + 0.5) * range[3]))
 		end
 	end
 	local setting = ns.settingObjects[key]

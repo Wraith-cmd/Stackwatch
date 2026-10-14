@@ -22,7 +22,7 @@ local TOP_SPELLS = 3
 local SPELLS_PER_PLAYER = 2
 
 local pending          -- encounter waiting for its report
-local knownSessions    -- session IDs that existed when the encounter started
+local lastKnownSession -- newest session ID when the encounter started
 ns.lastReport = nil    -- lines of the most recent report, for /sw report
 
 local function Secret(v)
@@ -95,13 +95,14 @@ local function SessionIDs()
 	return ids
 end
 
--- The session for the encounter: among sessions that appeared after
--- ENCOUNTER_START, the one whose length is closest to the fight. Falls back
--- to the newest session.
+-- The session for the encounter: the one closest in length to the fight,
+-- among the session that was newest at ENCOUNTER_START (the meter may open
+-- the fight's session at combat start, a moment before) and every newer one.
+-- Falls back to the newest session.
 local function FindSession(fightSeconds)
 	local best, bestScore, newest
 	for id, duration in pairs(SessionIDs()) do
-		if not (knownSessions and knownSessions[id]) then
+		if not lastKnownSession or id >= lastKnownSession then
 			if not newest or id > newest then
 				newest = id
 			end
@@ -236,10 +237,21 @@ end
 
 function ns.OnEncounterStart(encounterID, encounterName)
 	ns.encounterStartTime = GetTime and GetTime() or nil
-	knownSessions = nil
-	if DamageMeterReady() then
-		knownSessions = SessionIDs()
+	lastKnownSession = nil
+	-- The pull may already be restricted here. The snapshot is optional
+	-- (FindSession works without it), so skip it then, and never let it error.
+	if ns.IsRestricted() then
+		return
 	end
+	pcall(function()
+		if DamageMeterReady() then
+			for id in pairs(SessionIDs()) do
+				if not lastKnownSession or id > lastKnownSession then
+					lastKnownSession = id
+				end
+			end
+		end
+	end)
 end
 
 function ns.OnEncounterEnd(encounterID, encounterName, difficultyID, groupSize, success)

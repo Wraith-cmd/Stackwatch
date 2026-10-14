@@ -321,6 +321,25 @@ check(printedSince(mark) == "", "report option off: nothing printed")
 slash("report")
 check(printedSince(mark):find("kill") ~= nil, "kills are labeled as kills")
 ns.SetOption("raidReport", true)
+
+-- The meter may open the fight's session at combat start, before
+-- ENCOUNTER_START, and the pull may already be restricted then.
+mark = #printed
+stub.meter.sessions[#stub.meter.sessions + 1] = { id = 20, duration = 40 }
+stub.meter.data[20] = { { guid = "Player-1-0009", name = "TrashPuller", spells = { [902] = 1 } } }
+stub.meter.sessions[#stub.meter.sessions + 1] = { id = 21, duration = 272 }
+stub.meter.data[21] = raidData
+stub.now = 1000
+stub.inCombat = true
+stub.restricted[Enum.AddOnRestrictionType.Encounter] = true
+stub.FireEvent("ENCOUNTER_START", 3421, "The Twin Fangs", 16, 20)
+stub.now = 1272
+stub.FireEvent("ENCOUNTER_END", 3421, "The Twin Fangs", 16, 20, 0, {})
+stub.inCombat = false
+stub.restricted[Enum.AddOnRestrictionType.Encounter] = nil
+stub.FireEvent("PLAYER_REGEN_ENABLED")
+out = printedSince(mark)
+check(out:find("Tankyboi") and not out:find("TrashPuller"), "restricted ENCOUNTER_START: report still finds the fight's session by length")
 stub.inRaid, stub.isLeader = false, false
 
 -- Addon compartment entry point

@@ -43,7 +43,7 @@ jobs:
           for branch in live ptr ptr2 beta; do
             version=$(curl -sfL "https://raw.githubusercontent.com/Gethe/wow-ui-source/$branch/version.txt" | tr -d '[:space:]') || continue
             [ -n "$version" ] || continue
-            marker="build $version on $branch"
+            marker="build $version on $branch."
             if printf '%s' "$seen" | grep -qF "$marker"; then
               echo "Already checked $marker"
               continue
