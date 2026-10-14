@@ -8,5 +8,6 @@ ignore:
   - CHANGELOG.md
   - CLAUDE.md
   - NOTES.md
+  - scripts
 
 license-output: LICENSE

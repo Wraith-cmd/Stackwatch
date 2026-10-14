@@ -2,6 +2,12 @@
 
 Progress notes so work can continue on any machine. Newest first. Not shipped (ignored by .pkgmeta).
 
+## 2026-10-14 repo moved out of AddOns
+
+- The repo now lives at `D:\Wow shit\AddonDev\StackWatch`. `AddOns\StackWatch` is deploy output only: run `scripts\deploy.ps1` to test in game.
+- A stray Mythic+ research prompt (`packaging/MPLUS_RESEARCH_PROMPT.md`) had been committed to `dev` by mistake. It is removed from the branch, but it is still in the history of commit 2f89315 on GitHub. It contains the WoW account folder ID.
+- The Mythic+ job's files live in `D:\Wow shit\AddonDev\MythicPlus`. Its `run_overnight.cmd` and prompt now point at the new paths.
+
 ## 2026-10-14 overnight session (branch `dev`, PR to `main`)
 
 ### Released
