@@ -159,6 +159,9 @@ function ns.SetupOptions()
 	Header("Filtering")
 	Bool("bossOnly", "Boss debuffs only", "Only show debuffs the encounter flags as boss auras. Turn off to show every debuff on you (Sated and similar are filtered out).")
 
+	Header("Raid lead")
+	Bool("raidReport", "Report after each boss", "When you are the raid leader, print who took the most avoidable damage and from which spells after every boss pull. Only you see it; nothing is sent to the raid. Needs Blizzard's damage meter turned on. Anyone can type /sw report to see the last one.")
+
 	Header("Sound")
 	Bool("soundOnStack", "Sound on stack gain", "Play a short tick every time a tracked debuff gains a stack. Tracked spells: /sw sound list. Default list is Eternal Venom.")
 

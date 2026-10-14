@@ -30,7 +30,8 @@ stub.restricted = {}
 function InCombatLockdown() return stub.inCombat end
 C_RestrictedActions = { IsAddOnRestrictionActive = function(t) return stub.restricted[t] == true end }
 C_Secrets = { GetSpellAuraSecrecy = function(id) return Enum.SecrecyLevel.ContextuallySecret end }
-C_Spell = { GetSpellTexture = function(id) return 136187 end, GetSpellName = function(id) return "Eternal Venom" end }
+stub.spellNames = { [1290336] = "Eternal Venom" }
+C_Spell = { GetSpellTexture = function(id) return 136187 end, GetSpellName = function(id) return stub.spellNames[id] end }
 
 local soundSerial = 0
 stub.sounds = {}
@@ -50,6 +51,70 @@ C_UnitAuras = {
 		return soundSerial
 	end,
 	RemoveAuraSound = function(id) assert(stub.sounds[id], "RemoveAuraSound unknown id") stub.sounds[id] = nil end,
+}
+
+-- Secret values: a unique table marker. issecretvalue() is true for it, and
+-- the stub's damage meter hands them out during combat like the real one
+-- (SecretWhenInCombat). Any arithmetic, comparison or indexing on the
+-- marker raises an error, as in the game.
+local SECRET = setmetatable({}, {
+	__index = function() error("attempt to index a secret value") end,
+	__lt = function() error("attempt to compare a secret value") end,
+	__le = function() error("attempt to compare a secret value") end,
+	__add = function() error("attempt to perform arithmetic on a secret value") end,
+	__concat = function() error("attempt to concatenate a secret value") end,
+})
+function issecretvalue(v) return v == SECRET end
+stub.SECRET = SECRET
+
+stub.cvars = { damageMeterEnabled = true }
+C_CVar = { GetCVarBool = function(name) assert(type(name) == "string") return stub.cvars[name] == true end }
+stub.inRaid, stub.isLeader, stub.now = false, false, 1000
+function IsInRaid() return stub.inRaid end
+function UnitIsGroupLeader(unit) assert(type(unit) == "string") return stub.isLeader end
+function GetTime() return stub.now end
+
+-- Damage meter (Blizzard_APIDocumentationGenerated/DamageMeterDocumentation.lua)
+Enum.DamageMeterType = { DamageDone = 0, Dps = 1, HealingDone = 2, Hps = 3, Absorbs = 4, Interrupts = 5, Dispels = 6, DamageTaken = 7, AvoidableDamageTaken = 8, Deaths = 9, EnemyDamageTaken = 10 }
+Enum.DamageMeterSessionType = { Overall = 0, Current = 1, Expired = 2 }
+stub.meter = { sessions = {}, data = {} } -- data[sessionID] = { { guid, name, spells = { [spellID] = amount } } }
+local function meterSecret() return stub.inCombat or stub.meterSecret end
+local function validType(t) for _, v in pairs(Enum.DamageMeterType) do if v == t then return true end end return false end
+C_DamageMeter = {
+	GetAvailableCombatSessions = function()
+		local list = {}
+		for _, sess in ipairs(stub.meter.sessions) do list[#list + 1] = { sessionID = sess.id, name = "", durationSeconds = sess.duration } end
+		return list
+	end,
+	GetCombatSessionFromID = function(sessionID, meterType)
+		assert(type(sessionID) == "number" and validType(meterType), "GetCombatSessionFromID(sessionID, type)")
+		local sources = {}
+		for _, src in ipairs(stub.meter.data[sessionID] or {}) do
+			local total = 0
+			for _, amt in pairs(src.spells) do total = total + amt end
+			sources[#sources + 1] = meterSecret() and { sourceGUID = SECRET, name = SECRET, totalAmount = SECRET, classFilename = "WARRIOR" }
+				or { sourceGUID = src.guid, name = src.name, totalAmount = total, classFilename = "WARRIOR", isLocalPlayer = false }
+		end
+		return { combatSources = sources, maxAmount = 0, totalAmount = 0 }
+	end,
+	GetCombatSessionFromType = function(sessionType, meterType)
+		assert(type(sessionType) == "number" and validType(meterType))
+		local last = stub.meter.sessions[#stub.meter.sessions]
+		return C_DamageMeter.GetCombatSessionFromID(last and last.id or -1, meterType)
+	end,
+	GetCombatSessionSourceFromID = function(sessionID, meterType, sourceGUID, sourceCreatureID)
+		assert(type(sessionID) == "number" and validType(meterType), "GetCombatSessionSourceFromID(sessionID, type, guid, creatureID)")
+		assert(sourceGUID == nil or type(sourceGUID) == "string", "sourceGUID must be a WOWGUID or nil")
+		local spells = {}
+		for _, src in ipairs(stub.meter.data[sessionID] or {}) do
+			if src.guid == sourceGUID then
+				for id, amt in pairs(src.spells) do
+					spells[#spells + 1] = meterSecret() and { spellID = SECRET, totalAmount = SECRET } or { spellID = id, totalAmount = amt, isAvoidable = true }
+				end
+			end
+		end
+		return { combatSpells = spells, maxAmount = 0, totalAmount = 0 }
+	end,
 }
 
 C_StringUtil = {

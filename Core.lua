@@ -10,7 +10,7 @@
 
 local ADDON_NAME, ns = ...
 
-ns.VERSION = "1.0.0"
+ns.VERSION = "1.1.0"
 
 -- Eternal Venom (The Twin Fangs, The Venomous Abyss). Spell 1290336 is the
 -- debuff that carries the stacks on every difficulty (BigWigs keys on it).
@@ -47,6 +47,9 @@ ns.DEFAULTS = {
 
 	-- Filtering
 	bossOnly = true,        -- only auras Blizzard flags as boss auras
+
+	-- Raid leader report after each boss (printed only for the raid leader)
+	raidReport = true,
 
 	-- Sound
 	soundOnStack = false,
@@ -170,9 +173,11 @@ eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+eventFrame:RegisterEvent("ENCOUNTER_START")
+eventFrame:RegisterEvent("ENCOUNTER_END")
 eventFrame:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
 
-eventFrame:SetScript("OnEvent", function(self, event, arg1)
+eventFrame:SetScript("OnEvent", function(self, event, arg1, ...)
 	if event == "ADDON_LOADED" then
 		if arg1 ~= ADDON_NAME then
 			return
@@ -203,6 +208,13 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
 			DoRebuild()
 		end
 		ns.EnsureSounds()
+		ns.TryPendingReport()
+
+	elseif event == "ENCOUNTER_START" then
+		ns.OnEncounterStart(arg1, ...)
+
+	elseif event == "ENCOUNTER_END" then
+		ns.OnEncounterEnd(arg1, ...)
 
 	elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
 		-- Fired before a restriction activates and after it deactivates.
@@ -214,6 +226,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
 					DoRebuild()
 				end
 				ns.EnsureSounds()
+				ns.TryPendingReport()
 			end
 		end)
 	end
@@ -235,6 +248,7 @@ local function Usage()
 	print("  /sw all         show every debuff on you")
 	print("  /sw sound       toggle the stack-gain sound")
 	print("  /sw sound add <spellID> / remove <spellID> / list")
+	print("  /sw report      show the last boss fight's avoidable damage report")
 	print("  /sw status      print diagnostics for raid night")
 end
 
@@ -322,6 +336,8 @@ local function Status()
 		end
 		print("  aura secrecy: " .. label)
 	end
+	local meterOn = C_CVar and C_CVar.GetCVarBool and C_CVar.GetCVarBool("damageMeterEnabled")
+	print("  raid lead report: " .. (db.raidReport and "ON" or "OFF") .. ", Blizzard damage meter " .. (meterOn and "enabled" or "DISABLED (report needs it)"))
 	print("  containers built: " .. tostring(ns.displayBuilt))
 end
 
@@ -361,6 +377,8 @@ SlashCmdList["STACKWATCH"] = function(msg)
 		ns.RequestRebuild()
 	elseif cmd == "sound" then
 		SoundCommand(rest or "")
+	elseif cmd == "report" then
+		ns.ShowLastReport()
 	elseif cmd == "status" then
 		Status()
 	else

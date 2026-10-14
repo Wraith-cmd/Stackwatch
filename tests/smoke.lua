@@ -249,6 +249,80 @@ check(hudFrame:IsShown(), "/sw with no arguments opens the HUD")
 slash("")
 check(not hudFrame:IsShown(), "/sw again closes it")
 
+-- Raid leader report
+stub.spellNames[901] = "Venom Spray"
+stub.spellNames[902] = "Fang Sweep"
+local function fight(sessionID, data, opts)
+	opts = opts or {}
+	stub.now = 1000
+	stub.FireEvent("ENCOUNTER_START", 3421, "The Twin Fangs", 16, 20)
+	stub.inCombat = true
+	stub.restricted[Enum.AddOnRestrictionType.Encounter] = true
+	stub.meter.sessions[#stub.meter.sessions + 1] = { id = sessionID, duration = 272 }
+	stub.meter.data[sessionID] = data
+	stub.now = 1272
+	stub.FireEvent("ENCOUNTER_END", 3421, "The Twin Fangs", 16, 20, opts.success or 0, {})
+	stub.RunTimers() -- the 3 second retry fires while still restricted
+	if opts.stayInCombat then return end
+	stub.inCombat = false
+	stub.restricted[Enum.AddOnRestrictionType.Encounter] = nil
+	stub.FireEvent("PLAYER_REGEN_ENABLED")
+end
+local raidData = {
+	{ guid = "Player-1-0001", name = "Gotfleas", spells = { [901] = 120000, [902] = 40000 } },
+	{ guid = "Player-1-0002", name = "Tankyboi", spells = { [901] = 900000 } },
+	{ guid = "Player-1-0003", name = "Clean", spells = {} },
+	{ guid = "Creature-0-1-2-3-4-5", name = "Boss", spells = { [902] = 5000000 } },
+}
+local function printedSince(n) return table.concat(printed, "\n", n + 1) end
+
+stub.inRaid, stub.isLeader = true, true
+local mark = #printed
+fight(11, raidData)
+local out = printedSince(mark)
+check(out:find("The Twin Fangs %(wipe, 4:32%)") ~= nil, "leader gets the report after the fight")
+check(out:find("Venom Spray") and out:find("1.0M, 2 players"), "report sums the top source across players")
+check(out:find("1%. Tankyboi") and out:find("2%. Gotfleas"), "report ranks the most-hit players")
+check(not out:find("Boss") and not out:find("Clean"), "report skips creatures and players with no avoidable damage")
+
+mark = #printed
+stub.isLeader = false
+fight(12, raidData)
+check(printedSince(mark) == "", "non-leaders see nothing automatically")
+slash("report")
+check(printedSince(mark):find("Tankyboi") ~= nil, "/sw report shows the last report to anyone")
+
+stub.isLeader = true
+mark = #printed
+fight(13, raidData, { stayInCombat = true })
+check(printedSince(mark) == "", "no report while combat restrictions are active")
+stub.inCombat = false
+stub.restricted[Enum.AddOnRestrictionType.Encounter] = nil
+stub.FireEvent("ADDON_RESTRICTION_STATE_CHANGED", Enum.AddOnRestrictionType.Encounter, Enum.AddOnRestrictionState.Inactive)
+stub.RunTimers()
+check(printedSince(mark):find("Tankyboi") ~= nil, "report appears once restrictions lift")
+
+mark = #printed
+stub.meterSecret = true
+fight(14, raidData)
+stub.meterSecret = false
+check(printedSince(mark):find("nobody took avoidable damage") ~= nil, "secret damage meter values are skipped without an error")
+
+mark = #printed
+stub.cvars.damageMeterEnabled = false
+fight(15, raidData)
+stub.cvars.damageMeterEnabled = true
+check(printedSince(mark):find("Enable Damage Meter") ~= nil, "tells the leader to turn on the damage meter")
+
+mark = #printed
+ns.SetOption("raidReport", false)
+fight(16, raidData, { success = 1 })
+check(printedSince(mark) == "", "report option off: nothing printed")
+slash("report")
+check(printedSince(mark):find("kill") ~= nil, "kills are labeled as kills")
+ns.SetOption("raidReport", true)
+stub.inRaid, stub.isLeader = false, false
+
 -- Addon compartment entry point
 StackWatch_OnAddonCompartmentClick()
 
