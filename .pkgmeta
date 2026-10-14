@@ -1,0 +1,11 @@
+package-as: StackWatch
+
+# Files beginning with a period are always ignored by the packager.
+ignore:
+  - tests
+  - preview
+  - README.md
+  - CHANGELOG.md
+  - CLAUDE.md
+
+license-output: LICENSE

@@ -1,0 +1,15 @@
+## Interface: 120100, 120105
+## Title: StackWatch
+## Notes: Boss debuff stack tracker with threshold colors. Built for Midnight's aura rules: the game draws the stacks, the addon never reads them.
+## Author: Gotfleas
+## Version: 1.0.0
+## IconTexture: Interface\Icons\Spell_Nature_NullifyPoison
+## SavedVariables: StackWatchDB
+## Category: Combat
+## AddonCompartmentFunc: StackWatch_OnAddonCompartmentClick
+## X-License: MIT
+
+Core.lua
+Display.lua
+Demo.lua
+Options.lua

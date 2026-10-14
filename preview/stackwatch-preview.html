@@ -1,0 +1,305 @@
+<title>StackWatch Preview</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a game-screen stage on the left shows the live tracker over a raid backdrop; a control rail on the right mirrors the in-game settings panel. Dark-first because the thing it previews lives on a dark game screen. */
+:root {
+	--bg: #121417;
+	--panel: #1a1d22;
+	--panel-2: #21252c;
+	--line: #2d323b;
+	--fg: #e6e4de;
+	--muted: #9a9890;
+	--accent: #7fd1ff;
+	--caution: #ff9412;
+	--danger: #ff2e2e;
+	--bar: #40cc59;
+	--display: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+	--mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+	color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+	:root:not([data-theme="dark"]) {
+		--bg: #f1efe8; --panel: #ffffff; --panel-2: #f6f4ee; --line: #d9d5cb; --fg: #1d1f24; --muted: #5f5e58; --accent: #0b6fb0; color-scheme: light;
+	}
+}
+:root[data-theme="light"] {
+	--bg: #f1efe8; --panel: #ffffff; --panel-2: #f6f4ee; --line: #d9d5cb; --fg: #1d1f24; --muted: #5f5e58; --accent: #0b6fb0; color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--display); font-size: 15px; line-height: 1.5; margin: 0; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 28px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 20px; margin-bottom: 20px; }
+header h1 { font-size: 26px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+header .ver { font-family: var(--mono); color: var(--muted); font-size: 13px; }
+header p { margin: 0; color: var(--muted); flex-basis: 100%; max-width: 68ch; }
+.grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 18px; }
+@media (max-width: 780px) { .grid { grid-template-columns: 1fr; } }
+.stage { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; min-width: 0; }
+.screen { position: relative; height: 380px; background:
+	radial-gradient(ellipse at 50% 120%, #2a4a2e 0%, transparent 55%),
+	radial-gradient(ellipse at 20% 10%, #1b2a3a 0%, transparent 50%),
+	linear-gradient(#0d1a14, #07110c); overflow: hidden; }
+.screen .floor { position: absolute; inset: auto 0 0 0; height: 46%; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.025) 0 2px, transparent 2px 38px), linear-gradient(transparent, rgba(0,0,0,0.5)); }
+.screen .hud { position: absolute; left: 14px; top: 12px; font-family: var(--mono); font-size: 11px; color: rgba(230,228,222,0.55); line-height: 1.6; }
+.screen .hud b { color: rgba(230,228,222,0.85); font-weight: 500; }
+.screen .ui { position: absolute; right: 14px; top: 12px; width: 160px; }
+.screen .ui .row { height: 10px; margin-bottom: 5px; border-radius: 2px; background: #2b2f36; position: relative; overflow: hidden; }
+.screen .ui .row i { position: absolute; inset: 0; width: 72%; background: #3c8d3f; }
+.screen .ui .row.r i { width: 100%; background: #8b2626; }
+.tracker { position: absolute; left: 50%; top: 56%; transform: translate(-50%, -50%); display: flex; align-items: flex-start; }
+.btn { position: relative; }
+.icon { position: relative; background: #000; }
+.icon svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.tint { position: absolute; inset: 0; opacity: 0; }
+.edge { position: absolute; background: transparent; }
+.count { position: absolute; left: 0; right: 0; top: 0; text-align: center; font-family: "Friz Quadrata", var(--display); font-weight: 600; color: #fff; text-shadow: -1.5px 0 #000, 1.5px 0 #000, 0 -1.5px #000, 0 1.5px #000, 1px 1px #000, -1px -1px #000, 1px -1px #000, -1px 1px #000; line-height: 1; pointer-events: none; }
+.bar { position: relative; background: rgba(0,0,0,0.75); margin-top: 2px; overflow: hidden; }
+.bar .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bar); }
+.bar .tick { position: absolute; top: 0; bottom: 0; width: 1px; }
+.caption { padding: 12px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.caption b { color: var(--fg); font-weight: 500; }
+.rail { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.rail h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; font-weight: 600; }
+.ctl { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; }
+.ctl label { font-size: 14px; }
+.ctl output { font-family: var(--mono); font-size: 13px; color: var(--accent); text-align: right; min-width: 5ch; }
+.ctl input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.stacks { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+.stacks .big { display: flex; align-items: baseline; justify-content: space-between; }
+.stacks .big output { font-size: 34px; font-weight: 600; font-family: var(--mono); min-width: 2ch; text-align: right; }
+.stacks .state { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+.stacks input[type=range] { width: 100%; accent-color: var(--accent); margin-top: 6px; }
+.toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.toggles label { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.toggles input { accent-color: var(--accent); }
+.play { display: flex; gap: 8px; }
+button { font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+section.info { margin-top: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; min-width: 0; }
+.card h2 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
+.card p, .card li { color: var(--muted); font-size: 14px; }
+.card p { margin: 0 0 8px; }
+.card ul, .card ol { margin: 0; padding-left: 18px; }
+.card li { margin-bottom: 4px; }
+code { font-family: var(--mono); font-size: 13px; color: var(--fg); background: var(--panel-2); padding: 1px 5px; border-radius: 3px; }
+.layers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 6px; }
+.layers div { border: 1px solid var(--line); border-radius: 4px; padding: 8px; font-size: 12px; color: var(--muted); }
+.layers div b { display: block; color: var(--fg); font-weight: 600; font-family: var(--mono); font-size: 12px; margin-bottom: 3px; }
+.layers .c b { color: var(--caution); } .layers .d b { color: var(--danger); }
+.cmds { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+.cmds code { white-space: nowrap; }
+.cmds span { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+<header>
+	<h1>StackWatch</h1>
+	<span class="ver">v1.0.0 for WoW 12.1.5</span>
+	<p>Live preview of the addon. Drag the stack slider or press Play to watch what Gotfleas will see on the Twin Fangs pull. Every setting on the right exists in the in-game options panel.</p>
+</header>
+
+<div class="grid">
+	<div class="stage">
+		<div class="screen" id="screen">
+			<div class="floor"></div>
+			<div class="hud"><b>The Twin Fangs</b> (Mythic)<br>Vexhul 61% &nbsp; Ithraz 62%<br>Eternal Venom on you: <b id="hudStacks">0</b></div>
+			<div class="ui"><div class="row r"><i></i></div><div class="row"><i></i></div><div class="row"><i style="width:40%"></i></div></div>
+			<div class="tracker" id="tracker"></div>
+		</div>
+		<div class="caption">
+			<span><b>Base layer</b> icon, number, swipe, bar</span>
+			<span><b>Caution</b> orange border, tint, number at <b id="capC">5</b>+</span>
+			<span><b>Danger</b> red at <b id="capD">8</b>+</span>
+		</div>
+	</div>
+
+	<div class="rail">
+		<div class="stacks">
+			<div class="big"><span class="state" id="stateLabel">Clean</span><output id="stackOut">0</output></div>
+			<input type="range" id="stacks" min="0" max="10" value="0" step="1" aria-label="Eternal Venom stacks">
+			<div class="play" style="margin-top:8px">
+				<button type="button" id="playBtn">Play demo (/sw test)</button>
+				<button type="button" id="resetBtn">Reset</button>
+			</div>
+		</div>
+
+		<h2>Thresholds</h2>
+		<div class="ctl"><label for="caution">Caution at</label><output id="cautionOut">5</output><input type="range" id="caution" min="1" max="10" value="5"></div>
+		<div class="ctl"><label for="danger">Danger at</label><output id="dangerOut">8</output><input type="range" id="danger" min="1" max="10" value="8"></div>
+
+		<h2>Look</h2>
+		<div class="ctl"><label for="size">Icon size</label><output id="sizeOut">48 px</output><input type="range" id="size" min="24" max="96" value="48" step="2"></div>
+		<div class="ctl"><label for="border">Border thickness</label><output id="borderOut">2 px</output><input type="range" id="border" min="0" max="6" value="2"></div>
+		<div class="ctl"><label for="icons">Icons shown (demo)</label><output id="iconsOut">1</output><input type="range" id="icons" min="1" max="3" value="1"></div>
+		<div class="toggles">
+			<label><input type="checkbox" id="tint" checked> Tint icon</label>
+			<label><input type="checkbox" id="showBar" checked> Stack bar</label>
+			<label><input type="checkbox" id="countOne" checked> Number at 1</label>
+			<label><input type="checkbox" id="growLeft"> Grow left</label>
+		</div>
+	</div>
+</div>
+
+<section class="info">
+	<div class="card">
+		<h2>Why it cannot break on the pull</h2>
+		<p>Since 12.1 no addon can read your stack count during a boss fight. StackWatch never tries. It sets up three Blizzard aura containers at login and then does nothing during combat. The game client draws the number, fills the bar and flips the colors.</p>
+		<div class="layers">
+			<div><b>base</b>icon, number, swipe, bar</div>
+			<div class="c"><b>caution</b>shown by Blizzard when stacks &ge; 5</div>
+			<div class="d"><b>danger</b>shown by Blizzard when stacks &ge; 8</div>
+		</div>
+		<p style="margin-top:10px">The orange and red layers are invisible StatusBars whose only job is to be shown or hidden by <code>applications &gt;= minApplications</code> inside Blizzard's secure code. Their border, tint and number ride along.</p>
+	</div>
+	<div class="card">
+		<h2>Commands</h2>
+		<div class="cmds">
+			<code>/sw test</code><span>demo that cycles 0 to 10 stacks in the real spot</span>
+			<code>/sw unlock</code><span>drag handle; then /sw lock</span>
+			<code>/sw config</code><span>settings panel (also Esc &gt; Options &gt; AddOns)</span>
+			<code>/sw status</code><span>raid-night diagnostics</span>
+			<code>/sw all</code><span>show every debuff, not only boss debuffs</span>
+			<code>/sw sound</code><span>tick on every stack gained (off by default)</span>
+		</div>
+	</div>
+	<div class="card">
+		<h2>Install and share</h2>
+		<ol>
+			<li>Unzip <code>StackWatch-1.0.0.zip</code>.</li>
+			<li>Put the <code>StackWatch</code> folder in <code>_retail_\Interface\AddOns</code>.</li>
+			<li><code>/reload</code>, then <code>/sw test</code>.</li>
+		</ol>
+		<p style="margin-top:8px">For the guild: push the source to GitHub, tag <code>v1.0.0</code>, and the included workflow packages a release. Guildmates paste the repo link into WowUp and get updates automatically. Add a Wago or CurseForge token to the workflow to publish there too.</p>
+	</div>
+	<div class="card">
+		<h2>Cost on the PC</h2>
+		<p>No OnUpdate, no combat log, no per-frame Lua in a fight. Four events, all out of combat. About 40 KB of Lua and one 4 KB sound. Rebuilds after a settings change happen out of combat only.</p>
+		<p>Raid-night fallback: if Eternal Venom does not appear on the first pull, Blizzard did not flag it as a boss aura. Type <code>/sw all</code> and it shows with every other debuff.</p>
+	</div>
+</section>
+</div>
+
+<script>
+(function () {
+	var $ = function (id) { return document.getElementById(id); };
+	var tracker = $('tracker');
+	var state = { stacks: 0, caution: 5, danger: 8, size: 48, border: 2, icons: 1, tint: true, bar: true, countOne: true, left: false, max: 10 };
+	var COL = { caution: '#ff9412', danger: '#ff2e2e', bar: '#40cc59' };
+
+	function flask(id) {
+		// Original stand-in art for the debuff icon (not Blizzard's icon).
+		var hue = id === 0 ? 120 : id === 1 ? 20 : 280;
+		return '<svg viewBox="0 0 64 64" aria-hidden="true">' +
+			'<rect width="64" height="64" fill="hsl(' + hue + ',35%,12%)"/>' +
+			'<path d="M24 8h16v4h-2v12l14 24a6 6 0 0 1-5 9H17a6 6 0 0 1-5-9l14-24V12h-2z" fill="hsl(' + hue + ',30%,30%)" stroke="hsl(' + hue + ',40%,55%)" stroke-width="2"/>' +
+			'<path d="M20 40l12 0 12 0 6 11a3 3 0 0 1-3 5H17a3 3 0 0 1-3-5z" fill="hsl(' + hue + ',70%,45%)"/>' +
+			'<circle cx="30" cy="48" r="3" fill="hsl(' + hue + ',80%,70%)"/><circle cx="40" cy="44" r="2" fill="hsl(' + hue + ',80%,70%)"/>' +
+			'</svg>';
+	}
+
+	function build() {
+		var s = state.size, b = state.border;
+		var barH = state.bar ? Math.max(4, Math.round(s * 0.14)) : 0;
+		var font = Math.max(8, Math.round(s * 0.55));
+		tracker.innerHTML = '';
+		tracker.style.flexDirection = state.left ? 'row-reverse' : 'row';
+		tracker.style.gap = '6px';
+		for (var i = 0; i < state.icons; i++) {
+			var btn = document.createElement('div');
+			btn.className = 'btn';
+			btn.style.width = s + 'px';
+			btn.innerHTML =
+				'<div class="icon" style="width:' + s + 'px;height:' + s + 'px">' + flask(i) +
+				'<div class="tint"></div>' +
+				'<div class="edge t"></div><div class="edge b"></div><div class="edge l"></div><div class="edge r"></div>' +
+				'<div class="count" style="font-size:' + font + 'px;line-height:' + s + 'px"></div></div>' +
+				(barH ? '<div class="bar" style="width:' + s + 'px;height:' + barH + 'px"><div class="fill"></div>' +
+					'<div class="tick" style="left:' + Math.round(s * state.caution / state.max) + 'px;background:' + COL.caution + '"></div>' +
+					'<div class="tick" style="left:' + Math.round(s * state.danger / state.max) + 'px;background:' + COL.danger + '"></div></div>' : '');
+			var edges = btn.querySelectorAll('.edge');
+			edges[0].style.cssText = 'left:-' + b + 'px;right:-' + b + 'px;top:-' + b + 'px;height:' + b + 'px';
+			edges[1].style.cssText = 'left:-' + b + 'px;right:-' + b + 'px;bottom:-' + b + 'px;height:' + b + 'px';
+			edges[2].style.cssText = 'left:-' + b + 'px;top:-' + b + 'px;bottom:-' + b + 'px;width:' + b + 'px';
+			edges[3].style.cssText = 'right:-' + b + 'px;top:-' + b + 'px;bottom:-' + b + 'px;width:' + b + 'px';
+			tracker.appendChild(btn);
+		}
+		paint();
+	}
+
+	function paint() {
+		var n = state.stacks;
+		var level = n >= state.danger ? 'danger' : n >= state.caution ? 'caution' : null;
+		var color = level ? COL[level] : null;
+		var btns = tracker.querySelectorAll('.btn');
+		for (var i = 0; i < btns.length; i++) {
+			var btn = btns[i];
+			// Only the first icon is Eternal Venom in this demo; the others are non-stacking boss debuffs.
+			var stacks = i === 0 ? n : 0;
+			var lvl = i === 0 ? level : null;
+			var col = i === 0 ? color : null;
+			btn.style.visibility = (i === 0 && n === 0) ? 'hidden' : 'visible';
+			var count = btn.querySelector('.count');
+			count.textContent = stacks >= 2 || (stacks === 1 && state.countOne) ? stacks : '';
+			count.style.color = col || '#fff';
+			btn.querySelector('.tint').style.background = col || 'transparent';
+			btn.querySelector('.tint').style.opacity = (col && state.tint) ? 0.22 : 0;
+			var edges = btn.querySelectorAll('.edge');
+			for (var e = 0; e < edges.length; e++) edges[e].style.background = col || 'transparent';
+			var fill = btn.querySelector('.fill');
+			if (fill) fill.style.width = (100 * stacks / state.max) + '%';
+		}
+		$('stackOut').textContent = n;
+		$('hudStacks').textContent = n;
+		var label = $('stateLabel');
+		label.textContent = n >= state.max ? 'Dead at ' + state.max : level === 'danger' ? 'Danger' : level === 'caution' ? 'Caution' : n > 0 ? 'Stacking' : 'Clean';
+		label.style.color = color || 'var(--muted)';
+	}
+
+	function bindRange(id, key, outId, fmt, rebuild) {
+		var el = $(id);
+		el.addEventListener('input', function () {
+			state[key] = +el.value;
+			if (outId) $(outId).textContent = fmt ? fmt(state[key]) : state[key];
+			if (key === 'caution' && state.danger < state.caution) { state.danger = state.caution; $('danger').value = state.danger; $('dangerOut').textContent = state.danger; }
+			if (key === 'danger' && state.caution > state.danger) { state.caution = state.danger; $('caution').value = state.caution; $('cautionOut').textContent = state.caution; }
+			$('capC').textContent = state.caution; $('capD').textContent = state.danger;
+			if (rebuild) build(); else paint();
+		});
+	}
+	bindRange('stacks', 'stacks', null, null, false);
+	bindRange('caution', 'caution', 'cautionOut', null, true);
+	bindRange('danger', 'danger', 'dangerOut', null, true);
+	bindRange('size', 'size', 'sizeOut', function (v) { return v + ' px'; }, true);
+	bindRange('border', 'border', 'borderOut', function (v) { return v + ' px'; }, true);
+	bindRange('icons', 'icons', 'iconsOut', null, true);
+	['tint', 'showBar', 'countOne', 'growLeft'].forEach(function (id) {
+		$(id).addEventListener('change', function () {
+			state.tint = $('tint').checked; state.bar = $('showBar').checked; state.countOne = $('countOne').checked; state.left = $('growLeft').checked;
+			build();
+		});
+	});
+
+	var timer = null;
+	$('playBtn').addEventListener('click', function () {
+		if (timer) { clearInterval(timer); timer = null; this.textContent = 'Play demo (/sw test)'; return; }
+		this.textContent = 'Stop demo';
+		timer = setInterval(function () {
+			state.stacks = state.stacks >= state.max ? 0 : state.stacks + 1;
+			$('stacks').value = state.stacks;
+			paint();
+		}, 700);
+	});
+	$('resetBtn').addEventListener('click', function () {
+		if (timer) { clearInterval(timer); timer = null; $('playBtn').textContent = 'Play demo (/sw test)'; }
+		state.stacks = 0; $('stacks').value = 0; paint();
+	});
+
+	build();
+	// Start at a meaningful resting state so the first frame shows the feature.
+	state.stacks = 5; $('stacks').value = 5; paint();
+})();
+</script>
