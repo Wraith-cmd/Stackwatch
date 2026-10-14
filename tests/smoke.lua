@@ -16,9 +16,14 @@ local function check(cond, msg)
 	realPrint("ok   " .. msg)
 end
 
-local files = { "Core.lua", "Display.lua", "Demo.lua", "Options.lua" }
+-- Load the files in the order the .toc lists them
+local files = {}
+for line in io.lines("StackWatch.toc") do
+	line = line:gsub("%c$", "")
+	if line:match("%.lua$") then files[#files + 1] = line end
+end
 local ns = stub.LoadAddon(".", "StackWatch", files)
-check(ns.VERSION, "all four files load in TOC order")
+check(ns.VERSION and #files >= 5, "all " .. #files .. " files load in TOC order")
 
 -- Fresh install: no saved variables
 StackWatchDB = nil
@@ -169,6 +174,214 @@ check(#ns.activeSoundIDs == 1, "sounds re-registered after the encounter ends")
 local active = 0
 for _, c in ipairs(stub.containers) do if c._enabled then active = active + 1 end end
 check(active == 3, "exactly three containers active after rebuilds")
+
+-- Edit Mode: handle and demo appear, saved lock state untouched, all restored on exit
+check(stub.callbacks["EditMode.Enter"] and stub.callbacks["EditMode.Exit"], "Edit Mode callbacks registered")
+ns.db.locked = true
+ns.SetAnchorLocked(true)
+stub.TriggerCallback("EditMode.Enter")
+check(ns.anchor.handle:IsShown() and ns.anchor.handle._mouse == true and ns.demoActive == true, "Edit Mode shows the drag handle and the demo")
+check(ns.db.locked == true, "Edit Mode does not change the saved lock")
+ns.anchor.handle._script_OnMouseDown(ns.anchor.handle, "LeftButton")
+ns.anchor.handle._script_OnMouseUp(ns.anchor.handle, "LeftButton")
+local hudFrame
+for _, f in ipairs(stub.frames) do if f._name == "StackWatchHud" then hudFrame = f end end
+check(hudFrame and hudFrame:IsShown(), "click on the tracker in Edit Mode opens the HUD")
+ns.anchor.handle._script_OnMouseDown(ns.anchor.handle, "LeftButton")
+ns.anchor.handle._script_OnDragStart(ns.anchor.handle)
+ns.anchor.handle._script_OnDragStop(ns.anchor.handle)
+ns.anchor.handle._script_OnMouseUp(ns.anchor.handle, "LeftButton")
+check(hudFrame:IsShown(), "dragging the tracker does not toggle the HUD")
+stub.TriggerCallback("EditMode.Exit")
+check(not ns.anchor.handle:IsShown() and ns.anchor.handle._mouse == false and ns.demoActive == false, "leaving Edit Mode hides the handle and stops the demo")
+-- A demo the player started stays on through Edit Mode
+slash("test")
+stub.TriggerCallback("EditMode.Enter")
+stub.TriggerCallback("EditMode.Exit")
+check(ns.demoActive == true, "Edit Mode leaves a manually started demo running")
+slash("test")
+
+-- HUD buttons
+local function findButton(text, nth)
+	local n = 0
+	local function walk(o)
+		for _, c in ipairs(o._children) do
+			if c._type == "Button" and c._text == text then
+				n = n + 1
+				if n == (nth or 1) then return c end
+			end
+			local r = walk(c)
+			if r then return r end
+		end
+	end
+	return walk(hudFrame)
+end
+local cautionBefore = ns.db.cautionStacks
+findButton("+", 1)._script_OnClick()
+stub.RunTimers()
+check(ns.db.cautionStacks == cautionBefore + 1, "HUD + raises caution stacks")
+local built = #stub.containers
+findButton("-", 1)._script_OnClick()
+stub.RunTimers()
+check(ns.db.cautionStacks == cautionBefore and #stub.containers == built + 3, "HUD - lowers it and rebuilds through the settings path")
+for _ = 1, 40 do findButton("-", 1)._script_OnClick() end
+check(ns.db.cautionStacks == 1, "HUD clamps to the slider minimum")
+ns.SetOption("cautionStacks", 5)
+local scaleBefore = ns.db.scale
+findButton("+", 6)._script_OnClick()
+check(math.abs(ns.db.scale - (scaleBefore + 0.05)) < 0.001, "HUD scale step is 0.05")
+ns.SetOption("scale", scaleBefore)
+local markerBtn = findButton("Red X at danger: off")
+check(markerBtn ~= nil, "HUD shows the red X toggle")
+markerBtn._script_OnClick()
+stub.RunTimers()
+local dangerBtn = stub.containers[#stub.containers]._groups.stacks.frames[1]
+check(ns.db.dangerMarker == true and dangerBtn._bar and #dangerBtn._bar._children >= 7, "red X markers built on the danger gate")
+local markers = 0
+for _, c in ipairs(dangerBtn._bar._children) do if c._tex == "Interface\\TargetingFrame\\UI-RaidTargetingIcon_7" then markers = markers + 1 end end
+check(markers == 2, "two red X markers at danger")
+ns.SetOption("dangerMarker", false)
+stub.RunTimers()
+stub.FireEvent("PLAYER_REGEN_DISABLED")
+check(not hudFrame:IsShown(), "HUD closes when combat starts")
+slash("")
+check(hudFrame:IsShown(), "/sw with no arguments opens the HUD")
+slash("")
+check(not hudFrame:IsShown(), "/sw again closes it")
+
+-- Raid leader report
+stub.spellNames[901] = "Venom Spray"
+stub.spellNames[902] = "Fang Sweep"
+local function fight(sessionID, data, opts)
+	opts = opts or {}
+	stub.now = 1000
+	stub.FireEvent("ENCOUNTER_START", 3421, "The Twin Fangs", 16, 20)
+	stub.inCombat = true
+	stub.restricted[Enum.AddOnRestrictionType.Encounter] = true
+	stub.meter.sessions[#stub.meter.sessions + 1] = { id = sessionID, duration = 272 }
+	stub.meter.data[sessionID] = data
+	stub.now = 1272
+	stub.FireEvent("ENCOUNTER_END", 3421, "The Twin Fangs", 16, 20, opts.success or 0, {})
+	stub.RunTimers() -- the 3 second retry fires while still restricted
+	if opts.stayInCombat then return end
+	stub.inCombat = false
+	stub.restricted[Enum.AddOnRestrictionType.Encounter] = nil
+	stub.FireEvent("PLAYER_REGEN_ENABLED")
+end
+local raidData = {
+	{ guid = "Player-1-0001", name = "Gotfleas", spells = { [901] = 120000, [902] = 40000 } },
+	{ guid = "Player-1-0002", name = "Tankyboi", spells = { [901] = 900000 } },
+	{ guid = "Player-1-0003", name = "Clean", spells = {} },
+	{ guid = "Creature-0-1-2-3-4-5", name = "Boss", spells = { [902] = 5000000 } },
+}
+local function printedSince(n) return table.concat(printed, "\n", n + 1) end
+
+stub.inRaid, stub.isLeader = true, true
+local mark = #printed
+fight(11, raidData)
+local out = printedSince(mark)
+check(out:find("The Twin Fangs %(wipe, 4:32%)") ~= nil, "leader gets the report after the fight")
+check(out:find("Venom Spray") and out:find("1.0M, 2 players"), "report sums the top source across players")
+check(out:find("1%. Tankyboi") and out:find("2%. Gotfleas"), "report ranks the most-hit players")
+check(not out:find("Boss") and not out:find("Clean"), "report skips creatures and players with no avoidable damage")
+
+mark = #printed
+stub.isLeader = false
+fight(12, raidData)
+check(printedSince(mark) == "", "non-leaders see nothing automatically")
+slash("report")
+check(printedSince(mark):find("Tankyboi") ~= nil, "/sw report shows the last report to anyone")
+
+stub.isLeader = true
+mark = #printed
+fight(13, raidData, { stayInCombat = true })
+check(printedSince(mark) == "", "no report while combat restrictions are active")
+stub.inCombat = false
+stub.restricted[Enum.AddOnRestrictionType.Encounter] = nil
+stub.FireEvent("ADDON_RESTRICTION_STATE_CHANGED", Enum.AddOnRestrictionType.Encounter, Enum.AddOnRestrictionState.Inactive)
+stub.RunTimers()
+check(printedSince(mark):find("Tankyboi") ~= nil, "report appears once restrictions lift")
+
+mark = #printed
+stub.meterSecret = true
+fight(14, raidData)
+stub.meterSecret = false
+check(printedSince(mark):find("nobody took avoidable damage") ~= nil, "secret damage meter values are skipped without an error")
+
+mark = #printed
+stub.cvars.damageMeterEnabled = false
+fight(15, raidData)
+stub.cvars.damageMeterEnabled = true
+check(printedSince(mark):find("Enable Damage Meter") ~= nil, "tells the leader to turn on the damage meter")
+
+mark = #printed
+ns.SetOption("raidReport", false)
+fight(16, raidData, { success = 1 })
+check(printedSince(mark) == "", "report option off: nothing printed")
+slash("report")
+check(printedSince(mark):find("kill") ~= nil, "kills are labeled as kills")
+ns.SetOption("raidReport", true)
+
+-- The meter may open the fight's session at combat start, before
+-- ENCOUNTER_START, and the pull may already be restricted then.
+mark = #printed
+stub.meter.sessions[#stub.meter.sessions + 1] = { id = 20, duration = 40 }
+stub.meter.data[20] = { { guid = "Player-1-0009", name = "TrashPuller", spells = { [902] = 1 } } }
+stub.meter.sessions[#stub.meter.sessions + 1] = { id = 21, duration = 272 }
+stub.meter.data[21] = raidData
+stub.now = 1000
+stub.inCombat = true
+stub.restricted[Enum.AddOnRestrictionType.Encounter] = true
+stub.FireEvent("ENCOUNTER_START", 3421, "The Twin Fangs", 16, 20)
+stub.now = 1272
+stub.FireEvent("ENCOUNTER_END", 3421, "The Twin Fangs", 16, 20, 0, {})
+stub.inCombat = false
+stub.restricted[Enum.AddOnRestrictionType.Encounter] = nil
+stub.FireEvent("PLAYER_REGEN_ENABLED")
+out = printedSince(mark)
+check(out:find("Tankyboi") and not out:find("TrashPuller"), "restricted ENCOUNTER_START: report still finds the fight's session by length")
+stub.inRaid, stub.isLeader = false, false
+
+-- Regressions found by adversarial testing
+local realSessions = C_DamageMeter.GetAvailableCombatSessions
+for _, list in ipairs({ { stub.SECRET }, { 5 }, { false }, stub.SECRET, { { sessionID = 0 / 0 } } }) do
+	C_DamageMeter.GetAvailableCombatSessions = function() return list end
+	stub.FireEvent("ENCOUNTER_START", 3421, "The Twin Fangs", 16, 20)
+	stub.FireEvent("ENCOUNTER_END", 3421, "The Twin Fangs", 16, 20, 0, {})
+	stub.RunTimers()
+end
+C_DamageMeter.GetAvailableCombatSessions = realSessions
+check(true, "odd or secret damage meter session lists never raise an error")
+
+ns.SetOption("iconSize", "big")
+ns.SetOption("growth", "UP")
+ns.SetOption("scale", 0 / 0)
+check(type(ns.db.iconSize) == "number" and ns.db.growth ~= "UP" and ns.db.scale == ns.db.scale, "SetOption ignores wrong types, bad choices and NaN")
+
+local saved = StackWatchDB
+StackWatchDB = { iconSize = "big", scale = -4, maxIcons = 99, growth = "UP", colors = { caution = { 1 } }, soundSpellIDs = { "x", 1290336 } }
+stub.frames[1]._events["ADDON_LOADED"] = true
+stub.FireEvent("ADDON_LOADED", "StackWatch")
+local db = StackWatchDB
+check(db.iconSize == 48 and db.scale == 0.5 and db.maxIcons == 6 and db.growth == "RIGHT", "corrupted saved variables are repaired at load")
+check(#db.colors.caution == 3 and #db.soundSpellIDs == 1 and db.soundSpellIDs[1] == 1290336, "bad colors and sound IDs are repaired")
+ns.BuildDisplay()
+check(ns.displayBuilt, "display builds from repaired saved variables")
+StackWatchDB, ns.db = saved, saved
+
+stub.TriggerCallback("EditMode.Enter")
+slash("test")
+slash("test")
+stub.TriggerCallback("EditMode.Exit")
+check(ns.demoActive == true, "a demo restarted by hand during Edit Mode survives leaving Edit Mode")
+slash("test")
+stub.TriggerCallback("EditMode.Enter")
+ns.SetOption("iconSize", 50)
+stub.RunTimers()
+stub.TriggerCallback("EditMode.Exit")
+check(ns.demoActive == false, "the Edit Mode demo still stops after a rebuild inside Edit Mode")
+ns.SetOption("iconSize", 48)
+stub.RunTimers()
 
 -- Addon compartment entry point
 StackWatch_OnAddonCompartmentClick()

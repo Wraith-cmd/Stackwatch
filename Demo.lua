@@ -58,7 +58,7 @@ local function BuildDemo()
 	hint:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
 	hint:SetPoint("TOP", demo, "BOTTOM", 0, -4)
 	hint:SetTextColor(0.7, 0.85, 1, 1)
-	hint:SetText("demo: /sw test to stop")
+	hint:SetText(ns.inEditMode and "StackWatch demo" or "demo: /sw test to stop")
 	demo.hint = hint
 end
 
@@ -95,11 +95,14 @@ function ns.RefreshDemo()
 	if not ns.demoActive then
 		return
 	end
+	local fromEditMode = ns.editModeDemo
 	ns.StopDemo()
-	ns.StartDemo()
+	ns.StartDemo(true)
+	ns.editModeDemo = fromEditMode
 end
 
-function ns.StartDemo()
+-- quiet: started by Edit Mode, no chat message.
+function ns.StartDemo(quiet)
 	if ns.demoActive then
 		return
 	end
@@ -108,6 +111,9 @@ function ns.StartDemo()
 	SetDemoStacks(0)
 	ticker = C_Timer.NewTicker(0.7, Step)
 	ns.demoActive = true
+	if quiet then
+		return
+	end
 	ns.Print("demo running. Thresholds: caution at " .. ns.db.cautionStacks .. ", danger at " .. ns.db.dangerStacks .. ".")
 end
 
@@ -121,6 +127,8 @@ function ns.StopDemo()
 		demo = nil
 	end
 	ns.demoActive = false
+	-- A demo started later by /sw test belongs to the player, not Edit Mode.
+	ns.editModeDemo = false
 end
 
 function ns.ToggleDemo()

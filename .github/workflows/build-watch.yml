@@ -1,0 +1,71 @@
+name: Blizzard build watch
+
+# Once a day, checks Blizzard's UI source (mirrored at Gethe/wow-ui-source)
+# for a new live or PTR build. For every build it has not seen before, it runs
+# tests/compat_check.mjs against that build and comments the result on the
+# "Blizzard build watch" issue. A failing check also opens its own issue, so
+# GitHub emails the repo owner.
+
+on:
+  schedule:
+    - cron: '17 13 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      WATCH_TITLE: Blizzard build watch
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Find or create the watch issue
+        id: issue
+        run: |
+          num=$(gh issue list --state all --search "in:title \"$WATCH_TITLE\"" --json number,title --jq ".[] | select(.title == \"$WATCH_TITLE\") | .number" | head -n1)
+          if [ -z "$num" ]; then
+            url=$(gh issue create --title "$WATCH_TITLE" --body "A daily workflow comments here whenever Blizzard posts a new live or PTR build, with the result of the StackWatch compatibility check against that build. Failures also open their own issue.")
+            num=${url##*/}
+          fi
+          echo "number=$num" >> "$GITHUB_OUTPUT"
+
+      - name: Check every new build
+        run: |
+          num=${{ steps.issue.outputs.number }}
+          seen=$(gh issue view "$num" --json comments --jq '.comments[].body' || true)
+          failed=0
+          for branch in live ptr ptr2 beta; do
+            version=$(curl -sfL "https://raw.githubusercontent.com/Gethe/wow-ui-source/$branch/version.txt" | tr -d '[:space:]') || continue
+            [ -n "$version" ] || continue
+            marker="build $version on $branch."
+            if printf '%s' "$seen" | grep -qF "$marker"; then
+              echo "Already checked $marker"
+              continue
+            fi
+            # Only look at test branches when they are ahead of live.
+            if [ "$branch" != "live" ]; then
+              live=$(curl -sfL "https://raw.githubusercontent.com/Gethe/wow-ui-source/live/version.txt" | tr -d '[:space:]')
+              newest=$(printf '%s\n%s\n' "$live" "$version" | sort -V | tail -n1)
+              if [ "$newest" != "$version" ] || [ "$version" = "$live" ]; then
+                echo "Skipping $branch $version (not ahead of live $live)"
+                continue
+              fi
+            fi
+            if report=$(node tests/compat_check.mjs "$branch"); then
+              status="PASS"
+            else
+              status="FAIL"
+              failed=1
+              title="StackWatch compatibility: $branch $version"
+              [ "$branch" = "live" ] || title="Heads up: $branch $version breaks StackWatch"
+              gh issue create --title "$title" --body "$report"
+            fi
+            gh issue comment "$num" --body "$(printf '%s: %s\n\n%s' "$status" "$marker" "$report")"
+          done
+          exit $failed

@@ -7,5 +7,7 @@ ignore:
   - README.md
   - CHANGELOG.md
   - CLAUDE.md
+  - NOTES.md
+  - scripts
 
 license-output: LICENSE

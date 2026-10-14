@@ -10,7 +10,7 @@
 
 local ADDON_NAME, ns = ...
 
-ns.VERSION = "1.0.0"
+ns.VERSION = "1.1.0"
 
 -- Eternal Venom (The Twin Fangs, The Venomous Abyss). Spell 1290336 is the
 -- debuff that carries the stacks on every difficulty (BigWigs keys on it).
@@ -43,9 +43,13 @@ ns.DEFAULTS = {
 	countFontScale = 0.55,  -- number height as a fraction of the icon
 	borderSize = 2,
 	tintIcon = true,
+	dangerMarker = false,   -- red X raid markers beside the number at danger
 
 	-- Filtering
 	bossOnly = true,        -- only auras Blizzard flags as boss auras
+
+	-- Raid leader report after each boss (printed only for the raid leader)
+	raidReport = true,
 
 	-- Sound
 	soundOnStack = false,
@@ -96,6 +100,44 @@ local function CopyDefaults(src, dst)
 		end
 	end
 	return dst
+end
+
+-- Repair values a hand-edited or damaged SavedVariables file could hold:
+-- wrong types fall back to the default, numbers are clamped to the slider
+-- ranges, colors must be three numbers. Runs once at load.
+local function Sanitize(db)
+	for k, def in pairs(ns.DEFAULTS) do
+		if type(db[k]) ~= type(def) then
+			if type(def) == "table" then
+				db[k] = CopyDefaults(def, nil)
+			else
+				db[k] = def
+			end
+		end
+	end
+	local ranges = ns.RANGES or {}
+	for k, r in pairs(ranges) do
+		local v = db[k]
+		if v ~= v then -- NaN
+			v = ns.DEFAULTS[k]
+		end
+		db[k] = math.min(r[2], math.max(r[1], v))
+	end
+	if db.growth ~= "RIGHT" and db.growth ~= "LEFT" then
+		db.growth = ns.DEFAULTS.growth
+	end
+	for name, def in pairs(ns.DEFAULTS.colors) do
+		local c = db.colors[name]
+		if type(c) ~= "table" or type(c[1]) ~= "number" or type(c[2]) ~= "number" or type(c[3]) ~= "number" then
+			db.colors[name] = { def[1], def[2], def[3] }
+		end
+	end
+	for i = #db.soundSpellIDs, 1, -1 do
+		if type(db.soundSpellIDs[i]) ~= "number" then
+			table.remove(db.soundSpellIDs, i)
+		end
+	end
+	return db
 end
 
 local function Print(msg)
@@ -168,14 +210,17 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+eventFrame:RegisterEvent("ENCOUNTER_START")
+eventFrame:RegisterEvent("ENCOUNTER_END")
 eventFrame:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
 
-eventFrame:SetScript("OnEvent", function(self, event, arg1)
+eventFrame:SetScript("OnEvent", function(self, event, arg1, ...)
 	if event == "ADDON_LOADED" then
 		if arg1 ~= ADDON_NAME then
 			return
 		end
-		StackWatchDB = CopyDefaults(ns.DEFAULTS, StackWatchDB)
+		StackWatchDB = Sanitize(CopyDefaults(ns.DEFAULTS, StackWatchDB))
 		ns.db = StackWatchDB
 		self:UnregisterEvent("ADDON_LOADED")
 
@@ -185,6 +230,14 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
 		if ns.SetupOptions then
 			ns.SetupOptions()
 		end
+		ns.RegisterEditMode()
+
+	elseif event == "PLAYER_REGEN_DISABLED" then
+		-- Keep the screen clear on the pull. Changes made in the HUD are
+		-- already saved; rebuilds wait for combat to end anyway.
+		if ns.HideHud then
+			ns.HideHud()
+		end
 
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		-- Covers a /reload or login that happened mid-combat: nothing was
@@ -193,6 +246,13 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
 			DoRebuild()
 		end
 		ns.EnsureSounds()
+		ns.TryPendingReport()
+
+	elseif event == "ENCOUNTER_START" then
+		ns.OnEncounterStart(arg1, ...)
+
+	elseif event == "ENCOUNTER_END" then
+		ns.OnEncounterEnd(arg1, ...)
 
 	elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
 		-- Fired before a restriction activates and after it deactivates.
@@ -204,6 +264,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
 					DoRebuild()
 				end
 				ns.EnsureSounds()
+				ns.TryPendingReport()
 			end
 		end)
 	end
@@ -215,7 +276,8 @@ end)
 
 local function Usage()
 	Print("v" .. ns.VERSION .. " commands:")
-	print("  /sw config      open the settings panel")
+	print("  /sw             open the quick-settings window")
+	print("  /sw config      open the full settings panel")
 	print("  /sw unlock      show the drag handle (drag it, then /sw lock)")
 	print("  /sw lock        hide the drag handle")
 	print("  /sw test        toggle the demo (cycles 0 to max stacks)")
@@ -224,6 +286,7 @@ local function Usage()
 	print("  /sw all         show every debuff on you")
 	print("  /sw sound       toggle the stack-gain sound")
 	print("  /sw sound add <spellID> / remove <spellID> / list")
+	print("  /sw report      show the last boss fight's avoidable damage report")
 	print("  /sw status      print diagnostics for raid night")
 end
 
@@ -311,6 +374,8 @@ local function Status()
 		end
 		print("  aura secrecy: " .. label)
 	end
+	local meterOn = C_CVar and C_CVar.GetCVarBool and C_CVar.GetCVarBool("damageMeterEnabled")
+	print("  raid lead report: " .. (db.raidReport and "ON" or "OFF") .. ", Blizzard damage meter " .. (meterOn and "enabled" or "DISABLED (report needs it)"))
 	print("  containers built: " .. tostring(ns.displayBuilt))
 end
 
@@ -320,7 +385,11 @@ SlashCmdList["STACKWATCH"] = function(msg)
 	msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
 	local cmd, rest = msg:match("^(%S+)%s*(.*)$")
 	cmd = cmd or ""
-	if cmd == "config" or cmd == "options" then
+	if cmd == "" or cmd == "hud" then
+		if ns.ToggleHud then
+			ns.ToggleHud()
+		end
+	elseif cmd == "config" or cmd == "options" then
 		if ns.OpenOptions then
 			ns.OpenOptions()
 		end
@@ -346,6 +415,8 @@ SlashCmdList["STACKWATCH"] = function(msg)
 		ns.RequestRebuild()
 	elseif cmd == "sound" then
 		SoundCommand(rest or "")
+	elseif cmd == "report" then
+		ns.ShowLastReport()
 	elseif cmd == "status" then
 		Status()
 	else
@@ -355,7 +426,9 @@ end
 
 -- AddOn compartment (the minimap dropdown of addons)
 function StackWatch_OnAddonCompartmentClick()
-	if ns.OpenOptions then
+	if ns.ToggleHud then
+		ns.ToggleHud()
+	elseif ns.OpenOptions then
 		ns.OpenOptions()
 	end
 end

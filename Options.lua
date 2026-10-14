@@ -11,6 +11,24 @@ local INTEGER_KEYS = {
 	cautionStacks = true, dangerStacks = true, maxStacks = true,
 }
 
+-- Slider ranges, shared by the settings panel and the quick-settings HUD.
+-- { min, max, step }
+ns.RANGES = {
+	scale = { 0.5, 2.0, 0.05 },
+	cautionStacks = { 1, 30, 1 },
+	dangerStacks = { 1, 30, 1 },
+	maxStacks = { 2, 30, 1 },
+	iconSize = { 24, 96, 2 },
+	spacing = { 0, 24, 1 },
+	maxIcons = { 1, 6, 1 },
+	countFontScale = { 0.3, 0.9, 0.05 },
+	borderSize = { 0, 6, 1 },
+}
+
+-- Registered Blizzard setting objects by key, so other UI can change a
+-- value through the setting and keep the settings panel in sync.
+ns.settingObjects = {}
+
 local function OnSettingChanged(key, value)
 	local db = ns.db
 	if INTEGER_KEYS[key] and type(value) == "number" then
@@ -28,6 +46,33 @@ local function OnSettingChanged(key, value)
 		ns.UpdateSounds()
 	else
 		ns.RequestRebuild()
+	end
+end
+
+-- Change one option from anywhere (HUD, slash commands). Goes through the
+-- Blizzard setting when one exists so the panel shows the new value.
+function ns.SetOption(key, value)
+	local default = ns.DEFAULTS[key]
+	if default == nil or type(value) ~= type(default) or value ~= value then
+		return -- unknown key, wrong type or NaN
+	end
+	if key == "growth" and value ~= "RIGHT" and value ~= "LEFT" then
+		return
+	end
+	local range = ns.RANGES[key]
+	if range and type(value) == "number" then
+		value = math.min(range[2], math.max(range[1], value))
+		if range[3] >= 1 then
+			value = math.floor(value + 0.5)
+		else
+			value = tonumber(string.format("%.2f", math.floor(value / range[3] + 0.5) * range[3]))
+		end
+	end
+	local setting = ns.settingObjects[key]
+	if setting then
+		setting:SetValue(value)
+	else
+		OnSettingChanged(key, value)
 	end
 end
 
@@ -54,14 +99,17 @@ function ns.SetupOptions()
 		setting:SetValueChangedCallback(function(_, value)
 			OnSettingChanged(key, value)
 		end)
+		ns.settingObjects[key] = setting
 		Settings.CreateCheckbox(category, setting, tooltip)
 	end
 
-	local function Num(key, name, tooltip, minValue, maxValue, step, suffix)
+	local function Num(key, name, tooltip, suffix)
+		local minValue, maxValue, step = ns.RANGES[key][1], ns.RANGES[key][2], ns.RANGES[key][3]
 		local setting = Settings.RegisterAddOnSetting(category, "StackWatch_" .. key, key, db, Settings.VarType.Number, name, ns.DEFAULTS[key])
 		setting:SetValueChangedCallback(function(_, value)
 			OnSettingChanged(key, value)
 		end)
+		ns.settingObjects[key] = setting
 		local options = Settings.CreateSliderOptions(minValue, maxValue, step)
 		if MinimalSliderWithSteppersMixin and MinimalSliderWithSteppersMixin.Label and options.SetLabelFormatter then
 			options:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, function(value)
@@ -79,6 +127,7 @@ function ns.SetupOptions()
 		setting:SetValueChangedCallback(function(_, value)
 			OnSettingChanged(key, value)
 		end)
+		ns.settingObjects[key] = setting
 		local function GetOptions()
 			local container = Settings.CreateControlTextContainer()
 			for _, e in ipairs(entries) do
@@ -91,30 +140,34 @@ function ns.SetupOptions()
 
 	Header("Position")
 	Bool("locked", "Lock position", "Uncheck to show a drag handle. Drag it where you want the tracker, then lock again. You can also type /sw unlock and /sw lock.")
-	Num("scale", "Scale", "Overall scale of the tracker.", 0.5, 2.0, 0.05, "x")
+	Num("scale", "Scale", "Overall scale of the tracker.", "x")
 	Choice("growth", "Growth direction", "Which way extra icons are added when you carry more than one boss debuff.", {
 		{ "RIGHT", "Grow right" },
 		{ "LEFT", "Grow left" },
 	})
 
 	Header("Thresholds")
-	Num("cautionStacks", "Caution at", "Stacks at which the icon and number turn orange. Twin Fangs Mythic default: 5.", 1, 30, 1, " stacks")
-	Num("dangerStacks", "Danger at", "Stacks at which the icon and number turn red. Twin Fangs Mythic default: 8 (death is 10).", 1, 30, 1, " stacks")
-	Num("maxStacks", "Bar maximum", "The stack count that fills the bar completely. Twin Fangs: 10.", 2, 30, 1, " stacks")
+	Num("cautionStacks", "Caution at", "Stacks at which the icon and number turn orange. Twin Fangs Mythic default: 5.", " stacks")
+	Num("dangerStacks", "Danger at", "Stacks at which the icon and number turn red. Twin Fangs Mythic default: 8 (death is 10).", " stacks")
+	Num("maxStacks", "Bar maximum", "The stack count that fills the bar completely. Twin Fangs: 10.", " stacks")
 
 	Header("Look")
-	Num("iconSize", "Icon size", "Size of each icon in pixels.", 24, 96, 2, " px")
-	Num("spacing", "Icon spacing", "Gap between icons.", 0, 24, 1, " px")
-	Num("maxIcons", "Maximum icons", "How many boss debuffs to show at once. Permanent debuffs such as Eternal Venom always sort first.", 1, 6, 1, "")
-	Num("countFontScale", "Number size", "Height of the stack number as a fraction of the icon.", 0.3, 0.9, 0.05, "")
-	Num("borderSize", "Border thickness", "Thickness of the colored border at caution and danger.", 0, 6, 1, " px")
+	Num("iconSize", "Icon size", "Size of each icon in pixels.", " px")
+	Num("spacing", "Icon spacing", "Gap between icons.", " px")
+	Num("maxIcons", "Maximum icons", "How many boss debuffs to show at once. Permanent debuffs such as Eternal Venom always sort first.", "")
+	Num("countFontScale", "Number size", "Height of the stack number as a fraction of the icon.", "")
+	Num("borderSize", "Border thickness", "Thickness of the colored border at caution and danger.", " px")
 	Bool("tintIcon", "Tint icon at thresholds", "Wash the icon with the threshold color in addition to the border and number.")
+	Bool("dangerMarker", "Red X markers at danger", "Show the red X raid marker in both top corners of the icon at danger stacks, so it reads X 8 X. Only on your screen.")
 	Bool("showStackBar", "Show stack bar", "A small bar under the icon that fills toward the bar maximum, with tick marks at your thresholds.")
 	Bool("showCooldownSwipe", "Show duration swipe", "Cooldown swipe on debuffs that have a duration. Permanent debuffs show no swipe.")
 	Bool("showCountForOne", "Show the number at 1 stack", "Off makes the number appear from 2 stacks, like Blizzard's own frames. On shows 1 as soon as the debuff lands.")
 
 	Header("Filtering")
 	Bool("bossOnly", "Boss debuffs only", "Only show debuffs the encounter flags as boss auras. Turn off to show every debuff on you (Sated and similar are filtered out).")
+
+	Header("Raid lead")
+	Bool("raidReport", "Report after each boss", "When you are the raid leader, print who took the most avoidable damage and from which spells after every boss pull. Only you see it; nothing is sent to the raid. Needs Blizzard's damage meter turned on. Anyone can type /sw report to see the last one.")
 
 	Header("Sound")
 	Bool("soundOnStack", "Sound on stack gain", "Play a short tick every time a tracked debuff gains a stack. Tracked spells: /sw sound list. Default list is Eternal Venom.")
